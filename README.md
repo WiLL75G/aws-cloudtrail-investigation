@@ -1,4 +1,4 @@
-# Day 16 – SOC Tier 1 Incident Report: AWS Cloud Security Investigation Lab
+# SOC Tier 1 Incident Report: AWS Cloud Security Investigation Lab
 
 ---
 

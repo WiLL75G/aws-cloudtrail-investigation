@@ -1,194 +1,167 @@
-# SOC Tier 1 Incident Report: AWS Cloud Security Investigation Lab
+# AWS Cloud Security Investigation
 
----
+Reading CloudTrail as an analyst, not an admin. Eleven events, one unknown username, and two misconfigurations found in the account's own audit trail.
 
-## Incident Summary
+## At a Glance
 
-- **Incident Type:** AWS Cloud Security Investigation CloudTrail Log Analysis
-- **Severity:** Medium (Security Misconfigurations Identified)
-- **Detection Method:** AWS CloudTrail Event History Analysis + IAM Review
-- **Tools Used:** AWS CloudTrail, AWS Console, Event History, JSON Log Analysis
-- **Status:** Investigation Complete Misconfigurations Documented
+| Field | Detail |
+| --- | --- |
+| Investigation Type | Cloud security review, CloudTrail event analysis |
+| Platform | AWS, account 446643829023 |
+| Region | eu-north-1, Europe Stockholm |
+| Trail | soc-investigation-trail, multi region |
+| Log Storage | S3, aws-cloudtrail-logs-446643829023-5598fc6c |
+| Events Reviewed | 11 management events |
+| Outcome | No unauthorised access, 2 misconfigurations documented |
 
----
+## What Happened
 
-## Executive Summary
+A CloudTrail trail was created across all regions, and every management event in the account was reviewed and given a verdict.
 
-An AWS cloud security investigation was conducted using AWS CloudTrail to analyse account activity and identify security misconfigurations. A CloudTrail trail named `soc-investigation-trail` was created to capture all management events across all regions. Event history was reviewed and two security findings were identified: the root account was used without MFA authentication, and log file validation was not enabled on the trail. All events were correlated and assessed for suspicious activity.
+Nothing malicious was found. What was found is the account's own security posture written into its logs: the root account being used without MFA, and log file validation switched off.
 
----
+The interesting part of a cloud investigation is not the volume. Eleven events is nothing. It is that every event looks like a username doing a thing, and half the time the username is not a person.
 
-## Affected System
+Scope stated plainly: this is a personal AWS account with a small event history, not an enterprise estate. What it demonstrates is the reading, not the scale.
 
-- **Cloud Provider:** Amazon Web Services (AWS)
-- **Account ID:** 446643829023
-- **Region:** eu-north-1 (Europe Stockholm)
-- **Trail Name:** soc-investigation-trail
-- **Log Storage:** S3 aws-cloudtrail-logs-446643829023-5598fc6c
-- **Events Analysed:** 11 management events
-
----
-
-## Investigation Methodology
-
----
-
-### 1. AWS Console Access & CloudTrail Setup
+## CloudTrail Setup
 
 ![AWS Console](./screenshots/01_aws_console_dashboard.png)
 
-- Logged into AWS Console and navigated to CloudTrail
-- Created a multi-region trail named `soc-investigation-trail`
-- Confirmed trail status as actively logging
+Console accessed, CloudTrail opened, multi region trail created and confirmed logging.
 
-#### SOC Observations:
+Multi region is not optional. A single region trail is a trail with blind spots, and an attacker who knows which region you watch will work in one of the other thirty.
 
-- CloudTrail is the primary log source for all AWS cloud investigations
-- Multi-region trails capture activity across all AWS regions critical for full visibility
-- Logs stored in S3 provide a tamper-evident audit trail
-
----
-
-### 2. CloudTrail Trail Created and Active
+## Trail Verification
 
 ![CloudTrail Active](./screenshots/04_cloudtrail_active.png)
 
-- Trail confirmed active with status Logging
-- S3 bucket created automatically for log storage
-- Multi-region coverage confirmed Yes
+Status confirmed as Logging. S3 bucket created for storage. Multi region coverage confirmed.
 
-#### SOC Observations:
+Verify the trail before trusting the evidence. A disabled trail is not an absence of activity, it is an absence of visibility, and those look identical from the console.
 
-- A SOC analyst should always verify trail status before beginning an investigation
-- Disabled trails are a red flag attackers sometimes disable CloudTrail to cover their tracks
-- Multi-region trails prevent blind spots in cloud monitoring
+Disabling CloudTrail is itself an attacker move. If a trail is off, the first question is not what happened, it is who turned it off and when.
 
----
-
-### 3. Event History Review All 11 Events Analysed
+## Event History Review
 
 ![Event History](./screenshots/05_event_history.png)
 
 ![All Events](./screenshots/06_all_events.png)
 
-- Reviewed all 11 management events in the last 90 days
-- Identified two distinct user identities: root and onboarding
-- Confirmed all root actions were performed by the account owner
-- Confirmed onboarding activity was AWS internal service not a human
+All 11 management events across the last 90 days reviewed.
 
-#### SOC Observations:
+Two distinct identities appear: root, and a user called onboarding.
 
-- Unknown usernames in CloudTrail must always be investigated before clearing
-- AWS service roles appear as named users always verify the event source
-- Timestamp correlation is critical when multiple users appear in the same window
+Root actions traced to the account owner. The onboarding user needed explaining before anything could be cleared.
 
----
+Every event gets a verdict. An event nobody looked at is not a clean event, it is an unread one.
 
-### 4. Suspicious Event Investigation onboarding User
+## Investigating the Unknown User
 
 ![Event Details](./screenshots/07_event_details_p1.png)
 
-- Investigated AssociateDefaultView event performed by onboarding user
-- JSON analysis confirmed user type as AssumedRole AWS service role
-- Source IP confirmed as resource-explorer-2.amazonaws.com AWS internal
-- Verdict: AWS Resource Explorer service automatically configured not suspicious
+The onboarding user performed an AssociateDefaultView event.
 
-#### SOC Observations:
+A username nobody created is exactly the thing that ends an investigation early in the wrong direction. Reading the full JSON is what settles it.
 
-- In cloud investigations always read the full JSON event record not just the username
-- AWS service roles invoke API calls that appear as named users in event history
-- Source IP of an AWS service domain confirms internal automated activity
+The record showed:
 
----
+User type: AssumedRole, an AWS service role rather than a human identity.
 
-### 5. Critical Finding Root Account Without MFA
+Source IP: resource-explorer-2.amazonaws.com, an AWS internal service endpoint.
+
+Verdict: AWS Resource Explorer configuring itself. Not suspicious.
+
+This is the cloud specific skill. On a Linux box a username is a person. In AWS a username is often a service assuming a role, and the only way to tell is the identity type and the source in the JSON. The console view shows you the name. The JSON shows you what the name is.
+
+## Finding, Root Used Without MFA
 
 ![CreateTrail Event](./screenshots/08_createtrail_p1.png)
 
 ![CreateTrail JSON](./screenshots/08_createtrail_p2.png)
 
-- CreateTrail event performed by root user from IP 197.254.137.4
-- JSON confirmed mfaAuthenticated: false root used without MFA
-- Log file validation not enabled on the trail
-- Root account should never be used for routine tasks in a production environment
+The CreateTrail event was performed by the root user from 197.254.137.4.
 
-#### SOC Observations:
+The JSON returned `mfaAuthenticated: false`.
 
-- Root account usage is a critical finding in any cloud security investigation
-- MFA on root is the single most important AWS security control
-- Log file validation detects tampering with CloudTrail logs should always be enabled
+Root without MFA is the finding that outranks everything else in an AWS account. Root cannot be restricted by IAM policy, cannot be limited in scope, and cannot be locked out of anything. It is the account. One password between an attacker and total control, with no second factor behind it.
 
----
+The source IP traces to the account owner, so this is a misconfiguration and not an intrusion. It is still the highest severity item here, because the control that would stop an intrusion is the one that is missing.
 
-## Security Findings Summary
+## Finding, Log File Validation Disabled
+
+Log file validation was not enabled on the trail.
+
+Validation is what makes CloudTrail logs evidence rather than just records. Without it, a log file can be altered after the fact and nothing detects the change.
+
+An audit trail that cannot prove it has not been edited is an audit trail an attacker can rewrite. This finding is quieter than the root one and it undermines every other finding in the account, because it means none of the evidence can be proven intact.
+
+## Findings Summary
 
 | # | Finding | Severity | Status |
-|---|---|---|---|
-| 1 | Root account used without MFA | ❌ High | Remediation Required |
-| 2 | Log file validation not enabled | ⚠️ Medium | Remediation Required |
-| 3 | onboarding user activity | ✅ Clear | AWS internal service verified |
-| 4 | CreateDefaultVpc with no username | ✅ Clear | AWS automated activity |
+| --- | --- | --- | --- |
+| 1 | Root account used without MFA | High | Remediation required |
+| 2 | Log file validation not enabled | Medium | Remediation required |
+| 3 | onboarding user activity | Cleared | AWS Resource Explorer service, verified in JSON |
+| 4 | CreateDefaultVpc with no username | Cleared | AWS automated activity |
 
----
+Two of these are findings and two are cleared. Both cleared entries were investigated to a verdict, not assumed.
 
-## IOCs
+## Observations
 
 | Type | Value | Verdict |
-|---|---|---|
-| User | root | ⚠️ Used without MFA |
-| Source IP | 197.254.137.4 | ✅ Account owner IP |
-| User | onboarding | ✅ AWS Resource Explorer service |
-| Trail | soc-investigation-trail | ✅ Created for investigation |
+| --- | --- | --- |
+| User | root | Used without MFA, high severity |
+| Source IP | 197.254.137.4 | Account owner, expected |
+| User | onboarding | AWS Resource Explorer service role, cleared |
+| Trail | soc-investigation-trail | Created for this investigation |
 
----
+## MITRE ATT&CK Relevance
 
-## MITRE ATT&CK Mapping
+| Technique | ID | Why It Applies |
+| --- | --- | --- |
+| Valid accounts, cloud accounts | T1078.004 | Root used for management tasks is the account an attacker wants |
+| Impair defences, disable cloud logs | T1562.008 | Log validation off means log tampering would go undetected |
 
-| Technique ID | Technique | Finding |
-|---|---|---|
-| T1078.004 | Valid Accounts: Cloud Accounts | Root account used for management tasks |
-| T1530 | Data from Cloud Storage | S3 bucket created for log storage |
-| T1562.008 | Disable Cloud Logs | Log file validation disabled logs could be tampered |
+Mapping note: these are the techniques the misconfigurations expose the account to. Neither was observed. No adversary activity was present in the event history.
 
----
+## Analyst Conclusion
 
-## SOC Analyst Findings
+11 CloudTrail events reviewed, every one assigned a verdict.
 
-- 11 CloudTrail events reviewed no unauthorised access detected
-- Root account used without MFA critical security misconfiguration
-- Log file validation disabled tamper detection not active
-- onboarding user confirmed as AWS internal service cleared
-- All activity correlated to account owner and AWS automated services
+No unauthorised access detected.
 
----
+Root account used without MFA. Highest severity finding in the account.
 
-## SOC Analyst Response
+Log file validation disabled, meaning tamper detection is not active on the audit trail.
 
-- Documented all 11 events and their verdicts
-- Identified and flagged root MFA as critical remediation item
-- Recommended enabling log file validation on soc-investigation-trail
-- Recommended creating an IAM admin user for daily tasks instead of root
-- Recommended enabling AWS GuardDuty for automated threat detection
+The onboarding user is an AWS service role, confirmed from the identity type and source endpoint in the JSON.
 
----
+All activity attributable to the account owner or to AWS automation.
 
-## Analyst Insight
+## Recommended Response
 
-Cloud security investigations are fundamentally different from on-premise investigations. In AWS, every action leaves a JSON event record in CloudTrail the challenge is not finding the data but knowing what to look for. Root account usage without MFA is the most common critical finding in AWS environments and is the first thing a cloud security analyst checks. A single compromised root account gives an attacker complete control over the entire AWS environment.
+Enable MFA on root immediately. It is the single control with the largest blast radius in the account.
 
----
+Stop using root for routine work. Create an IAM admin user and reserve root for the handful of tasks that require it.
 
-## Learning Outcome
+Enable log file validation on the trail so the evidence can prove it is intact.
 
-- Navigate AWS CloudTrail and Event History as a SOC analyst
-- Create and configure a multi-region CloudTrail trail
-- Read and interpret CloudTrail JSON event records
-- Distinguish between AWS service activity and human user activity
-- Identify critical cloud security misconfigurations root MFA, log validation
-- Map cloud security findings to MITRE ATT&CK framework
-- Produce a cloud security incident report with remediation recommendations
+Enable GuardDuty so detection is not dependent on someone reading event history by hand.
 
----
+## What This Lab Demonstrates
+
+Configuring a multi region CloudTrail and verifying it before trusting its output.
+
+Reading CloudTrail JSON rather than the console summary.
+
+Distinguishing an AWS service role from a human identity, which is the mistake cloud investigations turn on.
+
+Investigating an unknown username to a verdict instead of clearing it or escalating it on the name alone.
+
+Identifying the two misconfigurations that matter most in an AWS account and explaining why they rank the way they do.
+
+Assigning a verdict to every event, including the ones that turned out clean.
 
 ## Repository Structure
 
@@ -212,6 +185,5 @@ aws-cloud-security-investigation-lab/
 
 ---
 
-## Conclusion
-
-This lab demonstrates a real-world AWS cloud security investigation workflow. AWS CloudTrail was configured and all management events were reviewed and assessed. Two security misconfigurations were identified root account usage without MFA and disabled log file validation. All activity was correlated and verdicts were documented. This mirrors the exact process a cloud SOC analyst or cloud security engineer follows when investigating suspicious activity in an AWS environment.
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-WilliamInCyber-blue?style=flat&logo=linkedin)](https://linkedin.com/in/WilliamInCyber)
+[![X](https://img.shields.io/badge/X-WilliamInCyber-black?style=flat&logo=x)](https://x.com/WilliamInCyber)
